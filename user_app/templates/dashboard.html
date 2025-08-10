@@ -1,0 +1,288 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="container pt-3">
+    <div class="d-flex justify-content-end">
+        <button id="logoutBtn" class="btn btn-outline-secondary">
+            Logout
+        </button>
+    </div>
+</div>
+
+
+<body class="bg-light">
+    <div class="container py-4">
+        <!-- Payment / Upload Card -->
+        <div id="paymentOrUploadCard"></div>
+
+        <!-- Files Table -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Your Files</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Upload Time</th>
+                                <th>Status</th>
+                                <th>Word Count</th>
+                            </tr>
+                        </thead>
+                        <tbody id="filesTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment History Table -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Payment History</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Transaction ID</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactionsTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log Table -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Activity Log</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Action</th>
+                                <th>Details</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activitiesTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/';
+                return;
+            }
+
+            fetch('/dashboard/', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+                .then(r => {
+                    if (r.status === 401) throw new Error('Token expired');
+                    return r.json();
+                })
+                .then(data => {
+
+
+                    // Render payment/upload card
+                    renderCard(data);
+
+                    // Render tables
+                    renderTable('#filesTbody', data.files, f => `
+            <tr>
+                <td>${f.filename}</td>
+                <td>${new Date(f.upload_time).toLocaleString()}</td>
+                <td>${badge(f.status)}</td>
+                <td>${f.word_count ?? '-'}</td>
+            </tr>
+        `);
+
+                    renderTable('#transactionsTbody', data.transactions, t => `
+            <tr>
+                <td>${t.transaction_id}</td>
+                <td>$${t.amount}</td>
+                <td>${badge(t.status)}</td>
+                <td>${new Date(t.timestamp).toLocaleString()}</td>
+            </tr>
+        `);
+
+                renderTable('#activitiesTbody', data.activities, a => `
+            <tr>
+                <td>${a.action}</td>
+                <td><small>${Object.entries(a.metadata)
+                            .map(([k, v]) => `<strong>${k}:</strong> ${v}`)
+                            .join('<br>')
+                        }</small></td>
+                <td>${new Date(a.timestamp).toLocaleString()}</td>
+            </tr>
+        `);
+                })
+                .catch(err => {
+                    console.error("Error loading dashboard:", err);
+
+                });
+        });
+
+        /* ======== Helpers ======== */
+
+        // Badge generator
+        function badge(status) {
+            const map = { completed: 'success', pending: 'warning' };
+            const cls = map[status] || 'danger';
+            return `<span class="badge bg-${cls}">${status}</span>`;
+        }
+
+        // Render tables
+        function renderTable(selector, items, rowFn) {
+            const tbody = document.querySelector(selector);
+            tbody.innerHTML = items.length
+                ? items.map(rowFn).join('')
+                : `<tr><td colspan="99" class="text-center">No data</td></tr>`;
+        }
+
+        // Render payment/upload card
+        function renderCard(dashboardData) {
+            const box = document.getElementById('paymentOrUploadCard');
+            if (!dashboardData.has_paid) {
+                box.innerHTML = `
+            <div class="card mb-4">
+                <div class="card-header"><h5>Payment Required</h5></div>
+                <div class="card-body">
+                    <p>You need to complete a payment of $100 to upload files.</p>
+                    <button id="initiatePaymentBtn" class="btn btn-primary">Pay Now</button>
+                </div>
+            </div>`;
+                document.getElementById('initiatePaymentBtn').onclick = async () => {
+
+                    try {
+                        const res = await fetch('/api/initiate-payment/', {
+                            method: 'POST',
+                            headers: {
+                                // Use SAME token format as dashboard fetch
+                                'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+                            }
+
+                        });
+
+                        const data = await res.json();
+                        if (res.ok) {
+                            console.log(data.transaction_id)
+                            await successPayment(data.transaction_id)
+                            location.reload(); // refresh dashboard
+                        } else {
+                            alert('Upload failed: ' + (data.error || 'Unknown error'));
+                        }
+                    } catch (err) {
+                        alert('Network error: ' + err.message);
+                    }
+                }
+
+            } else {
+                box.innerHTML = `
+            <div class="card mb-4">
+                <div class="card-header"><h5>Upload File</h5></div>
+                <div class="card-body">
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="fileInput" class="form-label">Select file (.txt or .docx)</label>
+                            <input class="form-control" type="file" id="fileInput" name="file"
+                                   accept=".txt,.docx" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Upload</button>
+                    </form>
+                </div>
+            </div>`;
+                bindUpload();
+            }
+        }
+
+        function bindUpload() {
+            const form = document.getElementById('uploadForm');
+            if (!form) return; // no form to bind
+
+            form.addEventListener('submit', async e => {
+                e.preventDefault();
+
+                const fileInput = document.getElementById('fileInput');
+                const file = fileInput.files[0];
+                if (!file) {
+                    alert('Choose a file first');
+                    return;
+                }
+
+                const fd = new FormData();
+                fd.append('file', file);
+
+
+                try {
+                    const res = await fetch('/api/upload/', {
+                        method: 'POST',
+                        headers: {
+                            // Use SAME token format as dashboard fetch
+                            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+                        },
+                        body: fd // Let fetch set the Content-Type
+                    });
+
+                    const data = await res.json();
+                    if (res.ok) {
+
+                        location.reload();
+                    } else {
+                        alert('Upload failed: ' + (data.error || 'Unknown error'));
+                    }
+                } catch (err) {
+                    alert('Network error: ' + err.message);
+                }
+            });
+        }
+
+        const successPayment = async (transation_id) => {
+            try {
+                const res = await fetch(`http://127.0.0.1:8000/api/payment/success/?tran_id=${transation_id}&status=success`, {
+                    method: 'GET',
+                    headers: {
+                        // Use SAME token format as dashboard fetch
+                        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+                    }
+
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    console.log(data)
+                    // location.reload(); // refresh dashboard
+                } else {
+                    alert('Upload failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+            }
+
+        }
+
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.onclick = () => {
+                localStorage.removeItem('token');
+                window.location.href = '/';
+            };
+        }
+
+    </script>
+    {% endblock %}

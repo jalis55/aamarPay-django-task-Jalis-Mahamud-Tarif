@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-center" style="min-height: 100vh;">
+  <div class="col-md-4">
+    <h2 class="mb-3 text-center">Login</h2>
+    <form id="loginForm">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label>Username</label>
+        <input type="text" name="username" class="form-control" required>
+      </div>
+      <div class="mb-3">
+        <label>Password</label>
+        <input type="password" name="password" class="form-control" required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Sign in</button>
+    </form>
+  </div>
+</div>
+<script>
+  document.addEventListener('DOMContentLoaded',()=>{
+    if(localStorage.getItem('token')){
+      window.location.href = '/user-dashboard/';
+      
+    }
+
+  })
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = e.target.username.value;
+    const password = e.target.password.value;
+    if (!username || !password) {
+      alert('Username and password cannot be empty.');
+      return;
+    }
+    try{
+      const response = await fetch('/api/token/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        localStorage.setItem('token', data.access);
+        window.location.href = '/user-dashboard/';
+      } else {
+        alert('Login failed. Please check your credentials.');
+      }
+    } catch (error) {
+      console.error('Error during login:', error);
+      alert('An error occurred. Please try again later.');  
+    }
+
+  });
+</script>
+{% endblock %}

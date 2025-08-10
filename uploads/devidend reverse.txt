@@ -1,0 +1,25 @@
+UPDATE trd_Investor_Inst a
+SET free_Qty = free_Qty - (
+    SELECT COALESCE(tbr.qty, 0)
+    FROM trd_Bonus_Rights tbr
+    WHERE tbr.bo_Code = (
+        SELECT bo_Code 
+        FROM trd_Investor_Account tia 
+        WHERE tia.investor_code = a.investor_code
+    )
+    AND tbr.process_dt = '2025-06-04 15:10:00'
+)
+WHERE a.company_Code = '08355A35-35C3-4935-AB3D-EDCCBAAD1F43'
+AND a.investor_code IN (
+    SELECT investor_code 
+    FROM trd_Investor_Account
+    WHERE bo_Code IN (
+        '1205230000165292',
+        '1205230020706444',
+        '1205230033453814',
+        '1205230043349086',
+        '1205230045016711',
+        '1205230057330043',
+        '1205230057331080'
+    )
+);
